@@ -27,23 +27,44 @@ SIEM/
  ├── manage.py
  └── README.md
  
-> ⚙️ Installation
+> Installation
 1. Clone the repository
    git clone https://github.com/GauravJain1008/Sentra---SIEM-CTI.git
    cd Sentra---SIEM-CTI
 
-2. Install dependencies
+3. Install dependencies
    pip install -r requirements.txt
 
-3. Run Django server
+4. Run Django server
    python3 manage.py runserver
 
-4. Run the log agent (in another terminal)
+5. Run the log agent (in another terminal)
    python agent/log_agent_multi.py
 
-5. Access Dashboard
+6. Access Dashboard
    http://127.0.0.1:8000/
  
+
+Clone the repository
+
+git clone https://github.com/<your-username>/<repo-name>.git
+cd <repo-name>
+
+Install dependencies
+
+pip install -r requirements.txt
+
+Run Django server
+
+python manage.py runserver
+
+Run the log agent (in another terminal)
+
+python agent/log_agent_multi.py
+
+Access Dashboard
+
+    http://127.0.0.1:8000/live/
 
 
 
