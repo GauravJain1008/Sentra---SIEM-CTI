@@ -16,3 +16,47 @@ Designed for continuous development and live log monitoring from multiple source
 
     Django backend — clean API endpoints for stats & logs
 
+> Project Structure
+
+SIEM/
+ ├── agent/               
+ ├── dashboard/           
+ ├── siem/               
+ ├── requirements.txt    
+ ├── manage.py
+ └── README.md
+ 
+> ⚙️ Installation
+1. Clone the repository
+   git clone https://github.com/GauravJain1008/Sentra---SIEM-CTI.git
+   cd Sentra---SIEM-CTI
+
+2. Install dependencies
+   pip install -r requirements.txt
+
+3. Run Django server
+   python3 manage.py runserver
+
+4. Run the log agent (in another terminal)
+   python agent/log_agent_multi.py
+
+5. Access Dashboard
+   http://127.0.0.1:8000/
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
