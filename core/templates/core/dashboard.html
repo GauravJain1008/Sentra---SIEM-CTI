@@ -1,0 +1,120 @@
+{% extends "core/base.html" %}
+{% block content %}
+<div class="space-y-6">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h2 class="text-2xl font-bold text-neon drop-shadow">Dashboard</h2>
+      <p class="text-xs text-gray-500">Realtime stats · Last 60 minutes</p>
+    </div>
+    <button id="refreshBtn"
+      class="px-3 py-1 border border-neon/40 text-neon rounded hover:bg-neon/10 transition">
+      Refresh
+    </button>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div class="bg-panel rounded border border-gray-700/40 p-4 shadow-neon">
+      <p class="text-xs text-gray-400">Logs (last hour)</p>
+      <p class="text-3xl font-bold text-neon" id="kpi_logs">0</p>
+    </div>
+    <div class="bg-panel rounded border border-gray-700/40 p-4 shadow-neon2">
+      <p class="text-xs text-gray-400">Total Alerts</p>
+      <p class="text-3xl font-bold text-neon2" id="kpi_alerts">0</p>
+    </div>
+    <div class="bg-panel rounded border border-gray-700/40 p-4">
+      <p class="text-xs text-gray-400">IoC Hits</p>
+      <p class="text-3xl font-bold text-err" id="kpi_ioc">0</p>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="grid lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-2 bg-panel rounded border border-gray-700/40 p-4">
+      <h3 class="text-sm text-gray-400 mb-2">Logs per minute (last 60m)</h3>
+      <canvas id="logsPerMin"></canvas>
+    </div>
+    <div class="bg-panel rounded border border-gray-700/40 p-4">
+      <h3 class="text-sm text-gray-400 mb-2">Level distribution</h3>
+      <canvas id="levelDist"></canvas>
+    </div>
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-panel rounded border border-gray-700/40 p-4">
+      <h3 class="text-sm text-gray-400 mb-2">Top Sources (24h)</h3>
+      <canvas id="topSources"></canvas>
+    </div>
+    <div class="bg-panel rounded border border-gray-700/40 p-4">
+      <h3 class="text-sm text-gray-400 mb-2">Top Hosts (24h)</h3>
+      <canvas id="topHosts"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let charts = {};
+
+async function fetchStats() {
+  const res = await fetch("/api/stats/");
+  const data = await res.json();
+
+  document.getElementById("kpi_logs").textContent   = data.kpis.logs_last_hour;
+  document.getElementById("kpi_alerts").textContent = data.kpis.total_alerts;
+  document.getElementById("kpi_ioc").textContent    = data.kpis.ioc_hits;
+
+  renderLine("logsPerMin", "Logs / min", data.logs_per_min.labels, data.logs_per_min.data);
+  renderDoughnut("levelDist", data.level_counts.labels, data.level_counts.data);
+  renderBar("topSources", "Events", data.top_sources.labels, data.top_sources.data);
+  renderBar("topHosts", "Events", data.top_hosts.labels, data.top_hosts.data);
+}
+
+function renderLine(id, label, labels, data) {
+  destroy(id);
+  charts[id] = new Chart(document.getElementById(id), {
+    type: "line",
+    data: { labels, datasets: [{ label, data, borderWidth: 2, tension: .2 }] },
+    options: {
+      scales: {
+        x: { ticks: { color: "#9ca3af" }, grid: { color: "#1f2937" } },
+        y: { ticks: { color: "#9ca3af" }, grid: { color: "#1f2937" } },
+      },
+      plugins: {
+        legend: { labels: { color: "#9ca3af" } }
+      }
+    }
+  });
+}
+function renderBar(id, label, labels, data) {
+  destroy(id);
+  charts[id] = new Chart(document.getElementById(id), {
+    type: "bar",
+    data: { labels, datasets: [{ label, data }] },
+    options: {
+      indexAxis: 'y',
+      scales: {
+        x: { ticks: { color: "#9ca3af" }, grid: { color: "#1f2937" } },
+        y: { ticks: { color: "#9ca3af" }, grid: { color: "#1f2937" } },
+      },
+      plugins: { legend: { labels: { color: "#9ca3af" } } }
+    }
+  });
+}
+function renderDoughnut(id, labels, data) {
+  destroy(id);
+  charts[id] = new Chart(document.getElementById(id), {
+    type: "doughnut",
+    data: { labels, datasets: [{ data }] },
+    options: { plugins: { legend: { labels: { color: "#9ca3af" } } } }
+  });
+}
+function destroy(id){ if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+document.getElementById("refreshBtn").addEventListener("click", fetchStats);
+fetchStats();
+setInterval(fetchStats, 10000);
+</script>
+{% endblock %}

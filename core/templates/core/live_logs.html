@@ -1,0 +1,364 @@
+{% extends "core/base.html" %}
+{% block content %}
+<div class="space-y-4">
+
+  <!-- Header -->
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h2 class="text-2xl font-bold text-neon">Live Logs</h2>
+      <div class="flex items-center gap-2 mt-1">
+        <span id="statusDot" class="pulse-dot"></span>
+        <span id="logStatus" class="text-sm text-green-400">Receiving logs...</span>
+        <span class="text-xs text-gray-500">(Shown: <span id="logCount">0</span>)</span>
+      </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="flex flex-wrap items-center gap-2">
+      <!-- Time range -->
+      <select id="timeRange"
+        class="bg-panel border border-gray-700/40 rounded px-2 py-1 text-sm">
+        <option value="5">Last 5m</option>
+        <option value="15">Last 15m</option>
+        <option value="30" selected>Last 30m</option>
+        <option value="60">Last 1h</option>
+        <option value="360">Last 6h</option>
+        <option value="1440">Last 24h</option>
+        <option value="custom">Custom…</option>
+      </select>
+
+      <!-- Custom range -->
+      <input id="startTs" type="datetime-local"
+             class="bg-panel border border-gray-700/40 rounded px-2 py-1 text-sm hidden">
+      <input id="endTs" type="datetime-local"
+             class="bg-panel border border-gray-700/40 rounded px-2 py-1 text-sm hidden">
+      <button id="applyRange"
+        class="hidden px-2 py-1 text-sm border border-neon/40 text-neon rounded hover:bg-neon/10">
+        Apply
+      </button>
+
+      <!-- Filters -->
+      <input id="logSearch" type="text" placeholder="Search q…"
+             class="bg-panel border border-gray-700/40 rounded px-2 py-1 text-sm w-36"
+             onkeyup="filterLogs()">
+
+      <select id="levelFilter"
+        class="bg-panel border border-gray-700/40 rounded px-2 py-1 text-sm"
+        onchange="filterLogs()">
+        <option value="">Level: All</option>
+        <option value="ERROR">ERROR</option>
+        <option value="WARN">WARN</option>
+        <option value="INFO">INFO</option>
+      </select>
+
+      <input id="hostFilter" type="text" placeholder="Host…"
+             class="bg-panel border border-gray-700/40 rounded px-2 py-1 text-sm w-24"
+             onkeyup="filterLogs()">
+      <input id="sourceFilter" type="text" placeholder="Source…"
+             class="bg-panel border border-gray-700/40 rounded px-2 py-1 text-sm w-24"
+             onkeyup="filterLogs()">
+
+      <!-- Controls -->
+      <button id="pauseBtn"
+        class="px-2 py-1 text-sm border border-gray-600 rounded hover:bg-gray-700/50">
+        ⏸ Pause
+      </button>
+      <button id="scrollBtn"
+        class="px-2 py-1 text-sm border border-neon/40 text-neon rounded hover:bg-neon/10">
+        Auto-Scroll: ON
+      </button>
+      <button id="clearBtn"
+        class="px-2 py-1 text-sm border border-err/40 text-err rounded hover:bg-err/10">
+        Clear
+      </button>
+
+      <!-- Export -->
+      <button id="exportCsvBtn"
+        class="px-2 py-1 text-sm border border-gray-600 rounded hover:bg-gray-700/50">
+        Export CSV
+      </button>
+      <button id="exportJsonBtn"
+        class="px-2 py-1 text-sm border border-gray-600 rounded hover:bg-gray-700/50">
+        Export JSON
+      </button>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div id="logsContainer"
+       class="bg-panel border border-gray-700/40 rounded overflow-auto"
+       style="max-height:75vh;">
+    <table class="w-full text-sm">
+      <thead class="sticky top-0 bg-gray-800/70 backdrop-blur text-gray-300 border-b border-gray-700/60">
+        <tr>
+          <th class="text-left px-3 py-2 w-[18%]">Time</th>
+          <th class="text-left px-3 py-2 w-[10%]">Host</th>
+          <th class="text-left px-3 py-2 w-[12%]">Source</th>
+          <th class="text-left px-3 py-2 w-[8%]">Level</th>
+          <th class="text-left px-3 py-2">Message</th>
+        </tr>
+      </thead>
+      <tbody id="logs-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let autoScroll = true;
+let paused = false;
+let logCount = 0;
+let lastLog = Date.now();
+let ws = null;
+let buffered = []; // hold WS logs when paused
+
+const tbody = document.getElementById("logs-body");
+const timeRange = document.getElementById("timeRange");
+const startTs = document.getElementById("startTs");
+const endTs = document.getElementById("endTs");
+const applyRange = document.getElementById("applyRange");
+
+init();
+
+async function init() {
+  bindToolbar();
+  await loadHistory();   // load initial range
+  startWS();             // then stream live
+}
+
+function bindToolbar() {
+  // time range controls
+  timeRange.addEventListener("change", () => {
+    const v = timeRange.value;
+    if (v === "custom") {
+      startTs.classList.remove("hidden");
+      endTs.classList.remove("hidden");
+      applyRange.classList.remove("hidden");
+    } else {
+      startTs.classList.add("hidden");
+      endTs.classList.add("hidden");
+      applyRange.classList.add("hidden");
+      loadHistory();
+    }
+  });
+
+  applyRange.addEventListener("click", () => {
+    loadHistory();
+  });
+
+  // filters auto-apply
+  ["levelFilter", "hostFilter", "sourceFilter"].forEach(id => {
+    document.getElementById(id).addEventListener("input", () => filterLogs());
+  });
+
+  // pause
+  document.getElementById("pauseBtn").addEventListener("click", togglePause);
+  document.getElementById("clearBtn").addEventListener("click", clearLogs);
+  document.getElementById("scrollBtn").addEventListener("click", toggleAutoScroll);
+
+  // export
+  document.getElementById("exportCsvBtn").addEventListener("click", exportCSV);
+  document.getElementById("exportJsonBtn").addEventListener("click", exportJSON);
+
+  // status monitor
+  setInterval(() => {
+    const sText = document.getElementById("logStatus");
+    const dot   = document.getElementById("statusDot");
+    if (Date.now() - lastLog > 5000) {
+      sText.textContent = "No new logs...";
+      sText.classList.remove("text-green-400");
+      sText.classList.add("text-warn");
+      dot.style.background = "#facc15";
+    } else {
+      sText.textContent = "Receiving logs...";
+      sText.classList.remove("text-warn");
+      sText.classList.add("text-green-400");
+      dot.style.background = "#14f195";
+    }
+  }, 3000);
+}
+
+function startWS() {
+  if (ws) ws.close();
+
+  ws = new WebSocket(
+    (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/logs/"
+  );
+
+  ws.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    if (paused) {
+      buffered.push(ev);
+    } else {
+      addLog(ev, true);
+    }
+    lastLog = Date.now();
+  };
+
+  ws.onclose = () => {
+    // retry after 2s
+    setTimeout(startWS, 2000);
+  };
+}
+
+async function loadHistory() {
+  clearLogs(false); // keep counters reset = false if you want
+  const params = new URLSearchParams();
+
+  if (timeRange.value === "custom") {
+    const s = startTs.value;
+    const e = endTs.value;
+    if (s) params.set("start", new Date(s).toISOString());
+    if (e) params.set("end", new Date(e).toISOString());
+  } else {
+    params.set("minutes", timeRange.value || "30");
+  }
+
+  // filters applied to initial fetch too
+  const lvl = document.getElementById("levelFilter").value;
+  const host = document.getElementById("hostFilter").value;
+  const source = document.getElementById("sourceFilter").value;
+  const q = document.getElementById("logSearch").value;
+
+  if (lvl) params.set("level", lvl);
+  if (host) params.set("host", host);
+  if (source) params.set("source", source);
+  if (q) params.set("q", q);
+
+  const res = await fetch(`/api/logs/?${params.toString()}`);
+  const data = await res.json();
+  data.results.forEach(ev => addLog(ev, false)); // don't increment 'live' counters
+
+  logCount = document.querySelectorAll("#logs-body tr").length;
+  document.getElementById("logCount").textContent = logCount;
+}
+
+function addLog(ev, isLive) {
+  const tr = document.createElement("tr");
+  tr.className = "border-b border-gray-800/40 hover:bg-gray-800/30";
+
+  let lvlClass = "text-gray-300";
+  if (ev.level === "ERROR") lvlClass = "text-err font-bold";
+  else if (ev.level === "WARN" || ev.level === "WARNING") lvlClass = "text-warn font-bold";
+  else if (ev.level === "INFO") lvlClass = "text-neon2";
+
+  tr.setAttribute("data-level", ev.level || "");
+  tr.setAttribute("data-host", (ev.host || "").toLowerCase());
+  tr.setAttribute("data-source", (ev.source || "").toLowerCase());
+  tr.setAttribute("data-text", (ev.message || "").toLowerCase() + " " + (ev.host || "") + " " + (ev.source || ""));
+
+  tr.innerHTML = `
+    <td class="px-3 py-1 text-gray-400">${ev.ts}</td>
+    <td class="px-3 py-1">${ev.host || ""}</td>
+    <td class="px-3 py-1">${ev.source || ""}</td>
+    <td class="px-3 py-1 ${lvlClass}">${ev.level || ""}</td>
+    <td class="px-3 py-1 text-gray-200"><code>${(ev.message || "").replace(/</g,"&lt;")}</code></td>
+  `;
+
+  tbody.appendChild(tr);
+
+  if (tbody.rows.length > 2000) tbody.deleteRow(0);
+
+  if (isLive) {
+    logCount++;
+    document.getElementById("logCount").textContent = logCount;
+  }
+
+  if (autoScroll) {
+    const cont = document.getElementById("logsContainer");
+    cont.scrollTop = cont.scrollHeight;
+  }
+
+  filterLogs();
+}
+
+function filterLogs() {
+  const term = document.getElementById("logSearch").value.toLowerCase();
+  const lvl  = document.getElementById("levelFilter").value;
+  const host = document.getElementById("hostFilter").value.toLowerCase();
+  const src  = document.getElementById("sourceFilter").value.toLowerCase();
+
+  const rows = document.querySelectorAll("#logs-body tr");
+  rows.forEach(r => {
+    const rowLvl = r.getAttribute("data-level") || "";
+    const rowHost = r.getAttribute("data-host") || "";
+    const rowSource = r.getAttribute("data-source") || "";
+    const rowText = r.getAttribute("data-text") || "";
+
+    const passLvl = !lvl || lvl === rowLvl;
+    const passHost = !host || rowHost.includes(host);
+    const passSrc = !src || rowSource.includes(src);
+    const passText = !term || rowText.includes(term);
+
+    r.style.display = (passLvl && passHost && passSrc && passText) ? "" : "none";
+  });
+}
+
+function clearLogs(resetCounters = true) {
+  tbody.innerHTML = "";
+  if (resetCounters) {
+    logCount = 0;
+    document.getElementById("logCount").textContent = 0;
+  }
+}
+
+function toggleAutoScroll() {
+  autoScroll = !autoScroll;
+  document.getElementById("scrollBtn").textContent = `Auto-Scroll: ${autoScroll ? "ON" : "OFF"}`;
+}
+
+function togglePause() {
+  paused = !paused;
+  const btn = document.getElementById("pauseBtn");
+  if (paused) {
+    btn.textContent = "▶ Resume";
+  } else {
+    btn.textContent = "⏸ Pause";
+    // flush buffered logs
+    buffered.forEach(ev => addLog(ev, true));
+    buffered = [];
+  }
+}
+
+function exportCSV() {
+  const rows = [...document.querySelectorAll("#logs-body tr")]
+    .filter(r => r.style.display !== "none");
+  const lines = [["ts","host","source","level","message"]];
+  rows.forEach(r => {
+    const cols = r.querySelectorAll("td");
+    const line = [...cols].map(c => `"${(c.innerText || "").replace(/"/g,'""')}"`);
+    lines.push(line);
+  });
+  const blob = new Blob([lines.map(l=>l.join(",")).join("\n")], {type:"text/csv"});
+  const url = URL.createObjectURL(blob);
+  download(url, `logs_${Date.now()}.csv`);
+}
+
+function exportJSON() {
+  const rows = [...document.querySelectorAll("#logs-body tr")]
+    .filter(r => r.style.display !== "none");
+  const arr = rows.map(r => {
+    const cols = r.querySelectorAll("td");
+    return {
+      ts: cols[0].innerText,
+      host: cols[1].innerText,
+      source: cols[2].innerText,
+      level: cols[3].innerText,
+      message: cols[4].innerText,
+    };
+  });
+  const blob = new Blob([JSON.stringify(arr, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  download(url, `logs_${Date.now()}.json`);
+}
+
+function download(url, name) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+</script>
+{% endblock %}
