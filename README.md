@@ -54,6 +54,8 @@ python agent/log_agent_multi.py
 
     > To run continuously in background, configure it as a systemd service.
 
+_*Note: This repo is actively updated while the project is in development — expect frequent changes, experiments, and feature additions.*_
+
 > Credits
 
 Developed & maintained by Gaurav Jain <br>
