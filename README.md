@@ -48,6 +48,16 @@ python agent/log_agent_multi.py
 
     http://127.0.0.1:8000/
 
+> Configuration
+
+    > Update agent/log_agent_multi.py with your desired log file paths.
+
+    > To run continuously in background, configure it as a systemd service.
+
+> Credits
+
+Developed & maintained by Gaurav Jain
+Sentra - Custom Django-based SIEM for learning, experimentation, and real-time log monitoring.
 
 
 
