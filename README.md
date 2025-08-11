@@ -19,6 +19,7 @@ Designed for continuous development and live log monitoring from multiple source
 > Project Structure
 
 SIEM/
+
  ├── agent/               
  ├── dashboard/           
  ├── siem/               
