@@ -56,7 +56,7 @@ python agent/log_agent_multi.py
 
 > Credits
 
-Developed & maintained by Gaurav Jain.
+Developed & maintained by Gaurav Jain <br>
 Sentra - Custom Django-based SIEM for learning, experimentation, and real-time log monitoring.
 
 
